@@ -1,1 +1,353 @@
-https://nirananil2002-dev.github.io/Ai---Arena/
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Arena 3D</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080e1b;color:white;font-family:Arial,sans-serif}
+header{padding:15px;display:flex;justify-content:space-between;align-items:center;background:#101b30}
+h1{margin:0;color:#67e8f9;font-size:24px}
+#layout{display:grid;grid-template-columns:1fr 260px;gap:12px;padding:12px}
+#game{height:75vh;min-height:400px;border-radius:14px;overflow:hidden;background:#172554}
+#panel{background:#111b35;border:1px solid #293b60;border-radius:14px;padding:14px}
+.paneltitle{color:#67e8f9;font-weight:bold;margin-bottom:10px}
+#scores div{padding:7px;border-bottom:1px solid #263654}
+#chatlog{height:200px;overflow-y:auto;background:#0b1325;padding:8px;border-radius:8px;font-size:13px}
+input{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0b1325;color:white;margin-top:7px}
+button{padding:10px;background:#06b6d4;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
+#controls{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+#controls button{width:55px;height:45px}
+#mobile{display:none}
+small{color:#a5b4d2}
+@media(max-width:750px){
+#layout{grid-template-columns:1fr}
+#game{height:55vh;min-height:330px}
+#panel{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#mobile{display:block}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ AI ARENA 3D</h1>
+  <div>🪙 <span id="coins">0</span></div>
+</header>
+
+<div id="layout">
+  <div>
+    <div id="game"></div>
+    <div id="controls">
+      <button onclick="move('up')">⬆</button>
+      <button onclick="move('left')">⬅</button>
+      <button onclick="move('down')">⬇</button>
+      <button onclick="move('right')">➡</button>
+    </div>
+    <p style="text-align:center"><small>Move with WASD or arrow keys. Collect coins and avoid AI rivals.</small></p>
+  </div>
+
+  <aside id="panel">
+    <div>
+      <div class="paneltitle">🏆 Leaderboard</div>
+      <div id="scores"></div>
+    </div>
+    <div>
+      <div class="paneltitle">💬 Arena Chat</div>
+      <div id="chatlog"></div>
+      <input id="msg" placeholder="Type a message...">
+      <button onclick="sendChat()" style="width:100%;margin-top:7px">Send</button>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const container=document.getElementById('game');
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x101b38);
+scene.fog=new THREE.Fog(0x101b38,25,75);
+
+const camera=new THREE.PerspectiveCamera(
+  60,container.clientWidth/container.clientHeight,0.1,1000
+);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(container.clientWidth,container.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x334466,2));
+
+const light=new THREE.DirectionalLight(0xffffff,3);
+light.position.set(10,20,10);
+light.castShadow=true;
+scene.add(light);
+
+// Arena
+const ground=new THREE.Mesh(
+  new THREE.PlaneGeometry(50,50),
+  new THREE.MeshStandardMaterial({color:0x1c3156})
+);
+ground.rotation.x=-Math.PI/2;
+ground.receiveShadow=true;
+scene.add(ground);
+
+const grid=new THREE.GridHelper(50,50,0x38bdf8,0x29446d);
+grid.position.y=.02;
+scene.add(grid);
+
+// Arena walls
+function wall(x,z,w,d){
+  const mesh=new THREE.Mesh(
+    new THREE.BoxGeometry(w,2,d),
+    new THREE.MeshStandardMaterial({color:0x263e6a})
+  );
+  mesh.position.set(x,1,z);
+  mesh.receiveShadow=true;
+  scene.add(mesh);
+}
+wall(0,-25,50,1);
+wall(0,25,50,1);
+wall(-25,0,1,50);
+wall(25,0,1,50);
+
+// Character creation
+function createPlayer(color,x,z,name){
+  const group=new THREE.Group();
+
+  const body=new THREE.Mesh(
+    new THREE.CapsuleGeometry(.55,.8,4,8),
+    new THREE.MeshStandardMaterial({color:color})
+  );
+  body.position.y=1;
+  body.castShadow=true;
+  group.add(body);
+
+  const head=new THREE.Mesh(
+    new THREE.SphereGeometry(.35,16,16),
+    new THREE.MeshStandardMaterial({color:0xffd6b0})
+  );
+  head.position.y=1.85;
+  group.add(head);
+
+  const ring=new THREE.Mesh(
+    new THREE.TorusGeometry(.75,.08,8,24),
+    new THREE.MeshStandardMaterial({color:color})
+  );
+  ring.rotation.x=Math.PI/2;
+  ring.position.y=.15;
+  group.add(ring);
+
+  group.position.set(x,0,z);
+  scene.add(group);
+  group.userData.score=0;
+  group.userData.name=name;
+  return group;
+}
+
+const player=createPlayer(0x38bdf8,0,0,"YOU");
+
+const bots=[
+  createPlayer(0xf43f5e,10,10,"Bot Red"),
+  createPlayer(0xa855f7,-10,-10,"Bot Purple"),
+  createPlayer(0xf97316,10,-10,"Bot Orange"),
+  createPlayer(0x22c55e,-10,10,"Bot Green")
+];
+
+// Coins
+const coinObjects=[];
+const coinMaterial=new THREE.MeshStandardMaterial({
+  color:0xffcc33,
+  metalness:.6,
+  roughness:.25
+});
+
+function spawnCoin(){
+  const coin=new THREE.Mesh(
+    new THREE.CylinderGeometry(.45,.45,.12,24),
+    coinMaterial
+  );
+  coin.rotation.x=Math.PI/2;
+  coin.position.set(
+    Math.random()*40-20,
+    .7,
+    Math.random()*40-20
+  );
+  scene.add(coin);
+  coinObjects.push(coin);
+}
+
+for(let i=0;i<20;i++)spawnCoin();
+
+// Controls
+const keys={};
+document.addEventListener('keydown',e=>{
+  keys[e.key.toLowerCase()]=true;
+});
+document.addEventListener('keyup',e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+function move(dir){
+  if(dir==="up")keys["arrowup"]=true;
+  if(dir==="down")keys["arrowdown"]=true;
+  if(dir==="left")keys["arrowleft"]=true;
+  if(dir==="right")keys["arrowright"]=true;
+
+  setTimeout(()=>{
+    if(dir==="up")keys["arrowup"]=false;
+    if(dir==="down")keys["arrowdown"]=false;
+    if(dir==="left")keys["arrowleft"]=false;
+    if(dir==="right")keys["arrowright"]=false;
+  },150);
+}
+
+function movePlayer(obj,dx,dz,speed){
+  obj.position.x+=dx*speed;
+  obj.position.z+=dz*speed;
+  obj.position.x=Math.max(-23,Math.min(23,obj.position.x));
+  obj.position.z=Math.max(-23,Math.min(23,obj.position.z));
+}
+
+function playerMovement(){
+  let dx=0,dz=0;
+  if(keys["w"]||keys["arrowup"])dz=-1;
+  if(keys["s"]||keys["arrowdown"])dz=1;
+  if(keys["a"]||keys["arrowleft"])dx=-1;
+  if(keys["d"]||keys["arrowright"])dx=1;
+
+  if(dx||dz){
+    const length=Math.sqrt(dx*dx+dz*dz);
+    movePlayer(player,dx/length,dz/length,.18);
+  }
+}
+
+// AI
+function botMovement(bot){
+  if(!bot.userData.target||
+     Math.random()<.02||
+     bot.userData.target.removed){
+    bot.userData.target=coinObjects[
+      Math.floor(Math.random()*coinObjects.length)
+    ];
+  }
+
+  const target=bot.userData.target;
+  if(!target)return;
+
+  const dx=target.position.x-bot.position.x;
+  const dz=target.position.z-bot.position.z;
+  const distance=Math.sqrt(dx*dx+dz*dz);
+
+  if(distance>.1){
+    movePlayer(bot,dx/distance,dz/distance,.095);
+  }
+}
+
+// Score
+function collectCoins(){
+  const all=[player,...bots];
+
+  for(let i=coinObjects.length-1;i>=0;i--){
+    const coin=coinObjects[i];
+
+    for(const p of all){
+      const distance=p.position.distanceTo(coin.position);
+
+      if(distance<1.3){
+        p.userData.score++;
+        scene.remove(coin);
+        coinObjects.splice(i,1);
+        coin.removed=true;
+        spawnCoin();
+        break;
+      }
+    }
+  }
+
+  document.getElementById('coins').textContent=
+    player.userData.score;
+}
+
+// Leaderboard
+function updateLeaderboard(){
+  const all=[player,...bots];
+  all.sort((a,b)=>b.userData.score-a.userData.score);
+
+  document.getElementById('scores').innerHTML=
+    all.map((p,i)=>`
+      <div>${i+1}. ${p.userData.name} — 🪙 ${p.userData.score}</div>
+    `).join("");
+}
+
+// Chat prototype
+function sendChat(){
+  const input=document.getElementById('msg');
+  const text=input.value.trim();
+  if(!text)return;
+
+  const log=document.getElementById('chatlog');
+  log.innerHTML+=`<div><b>You:</b> ${escapeHTML(text)}</div>`;
+  log.scrollTop=log.scrollHeight;
+  input.value="";
+}
+
+function escapeHTML(str){
+  return str.replace(/[&<>"']/g,c=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;',
+    '"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+document.getElementById('msg').addEventListener('keydown',e=>{
+  if(e.key==="Enter")sendChat();
+});
+
+// Camera
+camera.position.set(0,30,30);
+camera.lookAt(0,0,0);
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  playerMovement();
+
+  bots.forEach(bot=>{
+    botMovement(bot);
+    bot.rotation.y+=.01;
+  });
+
+  player.rotation.y+=.01;
+
+  coinObjects.forEach(c=>{
+    c.rotation.y+=.04;
+    c.position.y=.7+Math.sin(Date.now()*.002+c.position.x)*.15;
+  });
+
+  // Follow player
+  camera.position.x=player.position.x;
+  camera.position.z=player.position.z+30;
+  camera.position.y=27;
+  camera.lookAt(player.position.x,0,player.position.z);
+
+  collectCoins();
+  updateLeaderboard();
+  renderer.render(scene,camera);
+}
+
+animate();
+
+window.addEventListener('resize',()=>{
+  const w=container.clientWidth;
+  const h=container.clientHeight;
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w,h);
+});
+</script>
+</body>
+</html>
